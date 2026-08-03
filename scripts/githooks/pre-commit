@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Пре-коммит движка: личное не должно просачиваться в публичный репозиторий.
+# Быстро и без сети — тесты и линтер здесь не гоняются, они в гейтах перед сдачей работы.
+# Устанавливается через scripts/install_hooks.sh (git config core.hooksPath).
+#
+# У репозитория данных хук другой (открытые образцы подписи) — его ставит init_private.sh.
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/scripts/check_clean.sh"

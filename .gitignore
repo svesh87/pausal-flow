@@ -1,0 +1,29 @@
+# Планы, черновики, синтетические примеры и прогоны — вне git.
+tmp/
+
+# Окружение разработки (ruff, pytest) — ставится из requirements-dev.txt.
+.venv/
+
+# Служебное и пересобираемое.
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+*.ppm
+*.pgm
+.cache/
+
+# Данные здесь появляться не должны вообще: их место — приватный репозиторий.
+# Правила ниже — не удобство, а страховка от случайного `cp -r`. Пути привязаны к корню
+# (ведущий слеш) намеренно: без него `finance/` и `signatures/` совпали бы с навыками
+# `.claude/skills/finance/` и `.claude/skills/signatures/`, а `profile.json` — с фикстурой
+# тестов, и в клоне не оказалось бы ни того, ни другого.
+/profile.json
+/.check_clean.local
+/months/
+/finance/
+/contracts/
+/signatures/
+
+# Локальная подсказка «где мои данные» для запусков из каталога движка (см. scripts/reqs.py).
+.tasks_data

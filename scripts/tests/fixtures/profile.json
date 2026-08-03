@@ -1,0 +1,84 @@
+{
+  "entrepreneur": {
+    "name": "Test Owner",
+    "firm": "IME PREZIME PR BEOGRAD",
+    "izjava_name": "Prezime Ime PR Beograd",
+    "pib": "100000000",
+    "tax_code": "10000000",
+    "activity_code": "6201",
+    "address": "Ulica 1, 11000 Beograd",
+    "issue_place": "Beograd",
+    "phone": "+381600000000",
+    "email": "you@example.com"
+  },
+  "accounts": {
+    "rsd": "111-0000000011111-11",
+    "eur": "00-111-0001111.1",
+    "eur_iban": "RS11111000111100011111",
+    "personal_digits": "111000100011111111"
+  },
+  "mail": {
+    "mailbox": "you@example.com",
+    "bank_folder": "imap://you%40example.com@imap.example.com/Bank",
+    "statements_folder": "imap://you%40example.com@imap.example.com/Bank Statements"
+  },
+  "integrations": {
+    "tasks": {
+      "kind": "youtrack",
+      "mcp": "youtrack",
+      "projects": [
+        "PROJ"
+      ],
+      "assignee": "login"
+    },
+    "chat": {
+      "kind": "slack",
+      "mcp": "slack"
+    },
+    "mail": {
+      "kind": "thunderbird",
+      "mcp": "thunderbird-mail"
+    },
+    "accounting": {
+      "kind": "pausal.rs"
+    }
+  },
+  "client": {
+    "slug": "client-slug",
+    "name": "Client Company SL",
+    "address": "Spain, 00000, City,City, Street 1",
+    "tax_id": "ES000000000",
+    "chat_channel": "D00000000",
+    "chat_user": "U00000000",
+    "chat_workspace": "your-workspace",
+    "chat_languages": [
+      "ru",
+      "en"
+    ],
+    "act_languages": [
+      "en"
+    ]
+  },
+  "suppliers": [
+    {
+      "slug": "landlord",
+      "name": "Landlord PR Firm",
+      "former_name": "Landlord Old Name",
+      "account": "222-2222222222222-22",
+      "subject": "предмет счёта"
+    },
+    {
+      "slug": "hoster",
+      "name": "Hoster Doo",
+      "former_name": "",
+      "account": "333-3333333333333-33",
+      "subject": "второй предмет"
+    }
+  ],
+  "gpg": {
+    "recipient": "you@example.com"
+  },
+  "limits": {
+    "pausal_rsd_year": 6000000
+  }
+}
