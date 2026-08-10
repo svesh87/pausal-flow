@@ -64,10 +64,11 @@ scripts/init_private.sh ~/docs/ip-data
 profile.json          скопирован из profile.example.json — заполнять его
 engine -> …           симлинк на движок (в .gitignore)
 .claude/skills -> …   симлинк на навыки движка (в .gitignore)
-CLAUDE.md             тонкий: импортирует engine/CLAUDE.md плюс местные заметки
-.gitignore            engine, tmp/, открытые PNG подписей, кэш
+AGENTS.md             тонкий: импортирует engine/AGENTS.md плюс местные заметки
+CLAUDE.md -> AGENTS.md  симлинк: один текст читают и Claude Code, и Codex
+.gitignore            engine, tmp/, содержимое inbox/, открытые PNG подписей, кэш
 .githooks/pre-commit  не пустить открытые образцы подписи в коммит
-months/ finance/ contracts/ signatures/ docs/ tmp/inbox/
+months/ finance/ contracts/ signatures/ docs/ inbox/
 ```
 
 Скрипт идемпотентен: повторный запуск ничего не переписывает. Если каталог уже репозиторий

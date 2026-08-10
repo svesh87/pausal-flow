@@ -33,6 +33,7 @@
 | Уплатный счёт без ведущих нулей | `test_parsers.py::test_tax_account_without_leading_zeros` |
 | Вид налога по назначению, когда счёт неизвестен | `test_parsers.py::test_tax_kind_falls_back_to_purpose` |
 | Известная нестрогость разбора назначения | `test_parsers.py::test_tax_purpose_heuristic_is_greedy` |
+| Правила проверяются под настоящим именем, симлинк не удваивает находку | `test_clean.py::test_rules_symlink_is_not_scanned_twice` |
 | Год, годовая сумма и кварталы берутся из решения об эко-таксе | `test_eco.py::test_decision_gives_year_and_quarters` |
 | В решении суммы приходят в двух форматах (`1 220,44` и `300.93`) | `test_eco.py::test_decision_money_formats_differ_in_one_document` |
 | Реквизиты уплаты — из фразы про накнаду, а не из таксы на жалобу | `test_eco.py::test_payment_details_are_not_taken_from_appeal_fee` |

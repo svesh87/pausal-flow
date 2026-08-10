@@ -28,11 +28,16 @@ echo "данные: $TARGET"
 
 # --- каталоги -----------------------------------------------------------------
 # Пустые каталоги git не хранит, но человеку нужно видеть, куда что кладётся.
-for d in months contracts signatures docs tmp/inbox \
+for d in months contracts signatures docs inbox \
          finance/bank/raw/rsd finance/bank/raw/eur finance/payments \
          finance/taxes/statements finance/kpo; do
     mkdir -p "$TARGET/$d"
 done
+
+# Приёмник документов — единственный из них, который обязан существовать в свежем клоне:
+# навыки складывают в него входящие файлы, а пустой каталог git не хранит. Поэтому `.gitkeep`,
+# а содержимое приёмника закрыто в .gitignore.
+touch "$TARGET/inbox/.gitkeep"
 
 # --- конфиг -------------------------------------------------------------------
 if [[ -e "$TARGET/profile.json" ]]; then
@@ -71,8 +76,12 @@ else
 engine
 .claude/
 
-# Планы, черновики, приёмка документов и прогоны на копиях.
+# Планы, черновики и прогоны на копиях.
 tmp/
+
+# Приёмник входящих документов: сам каталог нужен в клоне, содержимое — нет.
+/inbox/*
+!/inbox/.gitkeep
 
 # Образцы подписи хранятся только зашифрованными: в git идёт samples.tar.gz.gpg.
 signatures/*.png
@@ -91,30 +100,41 @@ IGNORE
     echo '.gitignore: создан'
 fi
 
-# --- CLAUDE.md ----------------------------------------------------------------
-if [[ -e "$TARGET/CLAUDE.md" ]]; then
-    echo 'CLAUDE.md: уже есть, не трогаю'
+# --- AGENTS.md ----------------------------------------------------------------
+# Настоящий файл правил — `AGENTS.md`, `CLAUDE.md` рядом с ним только симлинк: один текст
+# читают и Claude Code, и Codex, и правится он в одном месте.
+if [[ -e "$TARGET/AGENTS.md" ]]; then
+    echo 'AGENTS.md: уже есть, не трогаю'
 else
-    cat > "$TARGET/CLAUDE.md" <<'CLAUDE'
+    cat > "$TARGET/AGENTS.md" <<'AGENTS'
 # Данные ИП (приватный репозиторий)
 
-Здесь только данные: `profile.json`, `months/`, `finance/`, `contracts/`, `signatures/`,
-`docs/history.md`. Навыки, скрипты и документация — в движке, он подключён симлинком
-`engine` и живёт своим публичным репозиторием.
+Настоящий файл правил — этот; `CLAUDE.md` рядом — симлинк на него. Правится только `AGENTS.md`.
 
-@engine/CLAUDE.md
+Здесь только данные: `profile.json`, `months/`, `finance/`, `contracts/`, `signatures/`,
+`inbox/`, `docs/history.md`. Навыки, скрипты и документация — в движке, он подключён
+симлинком `engine` и живёт своим публичным репозиторием.
+
+@engine/AGENTS.md
 
 ## Местное
 
 - скрипты запускаются по пути движка из корня данных: `python3 engine/scripts/<имя>.py`,
   пересборка — `engine/scripts/rebuild_all.sh`;
 - гейты движка гоняются из каталога движка (`cd engine`), там же лежит `.venv`;
+- входящие документы владелец кладёт в `inbox/`: сам каталог в git, содержимое — нет;
 - правки движка коммитятся в его репозиторий, правки данных — в этот; два коммита,
   два репозитория;
 - личная история форм документов — `docs/history.md`, журнал разобранных тревог —
   `finance/known_issues.md`, стоп-лист имён для проверки чистоты — `.check_clean.local`.
-CLAUDE
-    echo 'CLAUDE.md: создан'
+AGENTS
+    echo 'AGENTS.md: создан'
+fi
+if [[ -L "$TARGET/CLAUDE.md" || -e "$TARGET/CLAUDE.md" ]]; then
+    echo 'CLAUDE.md: уже есть, не трогаю'
+else
+    ln -s AGENTS.md "$TARGET/CLAUDE.md"
+    echo 'CLAUDE.md -> AGENTS.md'
 fi
 
 # --- хук ----------------------------------------------------------------------
