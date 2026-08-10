@@ -33,6 +33,17 @@
 | Уплатный счёт без ведущих нулей | `test_parsers.py::test_tax_account_without_leading_zeros` |
 | Вид налога по назначению, когда счёт неизвестен | `test_parsers.py::test_tax_kind_falls_back_to_purpose` |
 | Известная нестрогость разбора назначения | `test_parsers.py::test_tax_purpose_heuristic_is_greedy` |
+| Год, годовая сумма и кварталы берутся из решения об эко-таксе | `test_eco.py::test_decision_gives_year_and_quarters` |
+| В решении суммы приходят в двух форматах (`1 220,44` и `300.93`) | `test_eco.py::test_decision_money_formats_differ_in_one_document` |
+| Реквизиты уплаты — из фразы про накнаду, а не из таксы на жалобу | `test_eco.py::test_payment_details_are_not_taken_from_appeal_fee` |
+| Опомена с тем же префиксом `012_` решением не считается | `test_eco.py::test_opomena_is_not_a_decision` |
+| Без решения за год действует аконтација по Q4 прошлого года | `test_eco.py::test_akontacija_falls_back_to_last_quarter` |
+| Квартал с истёкшим сроком и без платежа виден как просрочка | `test_eco.py::test_overdue_quarter_is_reported` |
+| Годовой платёж одной суммой закрывает все кварталы года | `test_eco.py::test_lump_payment_covers_whole_year` |
+| Январский платёж закрывает четвёртый квартал прошлого года | `test_eco.py::test_january_payment_closes_last_years_quarter` |
+| Камата и комиссия портала не оплачивают будущий квартал | `test_eco.py::test_overpay_does_not_prepay_future_quarter` |
+| Напоминание о пријаве гаснет от файла в `statements/ГГГГ/` | `test_eco.py::test_prijava_reminder_stops_at_marker` |
+| Без решений в данных проверка сроков молчит, а не падает | `test_eco.py::test_no_decisions_is_quiet` |
 | Пропуск выписки закрыт добором — данные полные | `test_chain.py::test_gap_closed_when_arithmetic_adds_up` |
 | Разрыв открыт: операций в CSV нет | `test_chain.py::test_gap_open_when_operations_are_missing` |
 | Разрыв открыт: добор неполный | `test_chain.py::test_gap_open_when_filling_is_partial` |

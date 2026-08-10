@@ -107,7 +107,7 @@ TASKS_DATA=tmp/example-data python3 engine/scripts/kpo_book.py --offline
 | **«Обнови финансы»** | всё оптом: банк и счета поставщиков из почты, налоги, пересборка, одна сводка |
 | «Обнови банк» | новые izvod и выгрузки из eBank → `finance/bank/raw/`, CSV, сверка остатков |
 | «Собери счета» | новые счета поставщиков из почты → `finance/payments/ГГГГ/` + реестр |
-| «Обнови налоги» | новые документы налоговой → `finance/taxes/statements/` + реестр |
+| «Обнови налоги» | новые документы налоговой → `finance/taxes/statements/` + реестр, сроки эко-таксы |
 | «Обнови отчёт» | пересобрать `finance/report.md` из CSV |
 | «Прими документы» | разобрать `tmp/inbox/`: определить тип каждого файла и разложить |
 
@@ -127,7 +127,7 @@ TASKS_DATA=tmp/example-data python3 engine/scripts/kpo_book.py --offline
 | Артефакт | Собирается |
 |---|---|
 | `finance/bank/transactions_{eur,rsd}.csv` | `scripts/parse_izvod.py` |
-| `finance/taxes/payments.md` | `scripts/tax_registry.py` |
+| `finance/taxes/payments.md` (реестр платежей и кварталы эко-таксы) | `scripts/tax_registry.py` |
 | `finance/payments/registry.md` | `scripts/payments_registry.py` |
 | `finance/report.md` | `scripts/build_report.py` |
 | `finance/kpo/kpo_ГГГГ.pdf`, `finance/kpo/entries.md` | `scripts/kpo_book.py` |
