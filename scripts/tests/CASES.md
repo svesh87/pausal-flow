@@ -45,6 +45,15 @@
 | Камата и комиссия портала не оплачивают будущий квартал | `test_eco.py::test_overpay_does_not_prepay_future_quarter` |
 | Напоминание о пријаве гаснет от файла в `statements/ГГГГ/` | `test_eco.py::test_prijava_reminder_stops_at_marker` |
 | Без решений в данных проверка сроков молчит, а не падает | `test_eco.py::test_no_decisions_is_quiet` |
+| Налоги не со счёта ИП (личная карта, чужая карта) берутся из `taxes/offbank.csv` | `test_eco.py::test_offbank_payments_are_read_from_data` |
+| Опечатка в виде налога в `offbank.csv` — падение, а не потерянный платёж | `test_eco.py::test_offbank_unknown_kind_fails` |
+| Без файла платежей не со счёта ИП — пусто, а не ошибка | `test_eco.py::test_offbank_file_is_optional` |
+| Квартальная сумма без разделителя тысяч («1073.58») читается целиком | `test_eco.py::test_quarters_without_thousands_separator` |
+| Кварталы, не сложившиеся в годовую сумму решения, — падение | `test_eco.py::test_quarters_must_add_up_to_total` |
+| Платёж по опомене гасит только главный долг, камата не в счёт квартала | `test_eco.py::test_opomena_payment_counts_principal_only` |
+| Позднее решение отодвигает срок доспевших кварталов на 15 дней от решения | `test_eco.py::test_late_decision_moves_due_date` |
+| Год уплачен целиком — строка о следующем платеже всё равно есть | `test_eco.py::test_fully_paid_year_still_names_next_payment` |
+| Комиссия портала ЛПА (2 %, не меньше 50) не считается налогом | `test_eco.py::test_portal_fee_is_two_percent_with_minimum` |
 | Пропуск выписки закрыт добором — данные полные | `test_chain.py::test_gap_closed_when_arithmetic_adds_up` |
 | Разрыв открыт: операций в CSV нет | `test_chain.py::test_gap_open_when_operations_are_missing` |
 | Разрыв открыт: добор неполный | `test_chain.py::test_gap_open_when_filling_is_partial` |
@@ -74,6 +83,16 @@
 | Контейнер образцов расшифровывается один раз за запуск | `test_documents.py::test_container_decrypted_once_per_process` |
 | Отсутствие контейнера объясняет, как его собрать | `test_documents.py::test_missing_container_says_how_to_build` |
 | Синтетический PDF пригоден для проверки подписанного | `test_documents.py::test_synthetic_pdf_carries_info_dictionary` |
+| Вариант векторной подписи воспроизводится по seed | `test_vector.py::test_same_seed_gives_same_variant` |
+| Два подписания дают разные варианты | `test_vector.py::test_two_signings_differ` |
+| Плавное поле искажения не сдвигает точку дальше `WARP_AMP` высоты чернил | `test_vector.py::test_field_displacement_within_limit` |
+| Поле, наклон и растяжение вместе укладываются в предел из констант | `test_vector.py::test_total_displacement_within_declared_bound` |
+| Векторная подпись ложится путями, без картинок и `/XObject` | `test_vector.py::test_vector_signature_adds_paths_not_images` |
+| PNG-режим по-прежнему вставляет картинки | `test_vector.py::test_png_signature_still_embeds_images` |
+| Векторный режим тоже не перезаписывает подписанное | `test_vector.py::test_vector_signing_refuses_existing_result` |
+| Флаг `--png`/`--vector` важнее профиля, без ключа — PNG | `test_vector.py::test_mode_flag_overrides_profile` |
+| Векторные шаблоны читаются из контейнера одним вызовом gpg | `test_vector.py::test_vector_container_read_from_memory` |
+| Отсутствие контейнера шаблонов объясняет, как его собрать или откатиться | `test_vector.py::test_missing_vector_container_names_the_way_out` |
 | Движок не содержит реквизитов, имён и абсолютных путей | `test_portable.py::test_portable_part_is_clean` |
 | Жиро-счёт находится без конфига, по одной форме | `test_clean.py::test_form_check_catches_account_without_config` |
 | Домашний путь и IMAP-ящик находятся по форме | `test_clean.py::test_form_check_catches_home_path_and_imap` |
@@ -96,3 +115,9 @@
 | Синтетический пример собирается и на нём строятся все производные | `test_setup.py::test_examples_build_and_reports_assemble` |
 | Образец конфига и фикстура покрывают все обязательные поля | `test_setup.py::test_example_and_fixture_cover_every_required_field` |
 | Секций акта в примере столько, сколько языков в конфиге | `test_setup.py::test_example_month_has_a_section_per_act_language` |
+| Реквизиты уплатницы берутся из образцов в решении, у каждого года свои | `test_pay_slips.py::test_sample_slips_give_requisites_per_year` |
+| Суммы уплатниц — из решений: аконтация пореза и строка месяца доприноса | `test_pay_slips.py::test_amounts_come_from_decisions` |
+| Для оплаты наличными шифра 2xx меняется на 1xx | `test_pay_slips.py::test_cash_code_changes_only_first_digit` |
+| Строка NBS IPS QR собирается по стандарту | `test_pay_slips.py::test_ips_payload` |
+| В сврхе уплатнице — месяц, за который платится | `test_pay_slips.py::test_month_goes_into_purpose` |
+| Сврха в IPS QR укладывается в 35 знаков без обрезки посреди слова | `test_pay_slips.py::test_qr_purpose_fits_35` |

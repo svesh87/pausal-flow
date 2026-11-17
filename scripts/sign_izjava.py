@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Заполнение и подписание второго бланка банка — «Izjava / Statement».
 
-    python3 scripts/sign_izjava.py "<бланк>_for_sign.pdf" "<оригинальное имя>.pdf"
+    python3 scripts/sign_izjava.py "<бланк>_for_sign.pdf" "<оригинальное имя>.pdf" [--png|--vector]
+
+Подпись — картинка-образец или искажённый векторный шаблон, по `signatures.mode` в профиле;
+флаг перекрывает настройку на один запуск.
 
 Бланк приходит вторым вложением в письме о поступлении и уже содержит номер счёта,
 дату и сумму — дозаполнить надо только реквизиты заявителя, по два поля в сербской
@@ -30,6 +33,7 @@ from sign_pdf import png_obj, ink_bbox, baseline_row, norm_scale
 from sign_bank import ttf_metrics, enc_text, TTF_PATH, CACUTE_CODE
 import reqs
 import signatures
+import sig_vector
 
 NAME = reqs.get('entrepreneur.izjava_name')
 CONTACT = (reqs.get('entrepreneur.phone') + ' / '
@@ -60,8 +64,11 @@ def _line_after(ws, anchor, page_h, pdf, page):
 
 
 def sign_izjava(blank, out_pdf, samples=None, rng=None, name=NAME, contact=CONTACT,
-                force=False):
+                force=False, mode='png'):
+    """`mode='vector'`: `samples` — шаблоны из `signatures.load_vectors()`, подписи путями
+    (`sig_vector.py`), картинок и /XObject не добавляется; посадка та же, что у PNG."""
     ensure_new(out_pdf, force)
+    vector = mode == 'vector'
     rng = rng or random.SystemRandom()
     doc = load(blank)
     pages = page_list(doc)
@@ -123,26 +130,34 @@ def sign_izjava(blank, out_pdf, samples=None, rng=None, name=NAME, contact=CONTA
     content += b'ET\n'
 
     # подписи — по одной в каждой половине, сразу справа от напечатанного имени
-    samples = samples or signatures.load()
+    samples = samples or (signatures.load_vectors() if vector else signatures.load())
     sigs = sorted(samples)
     picks, chosen, names = [], [], []
     n_img = n_font + 3
     for k, ((nx0, _nx1, ny), _tel) in enumerate(halves):
         pool = [s for s in sigs if s not in chosen] or sigs
         p = rng.choice(pool); chosen.append(p); picks.append(p)
-        ni, ns = n_img + k * 2, n_img + k * 2 + 1
-        (w, h, rgba), o1, o2 = png_obj(samples[p], ni, ns)
-        objects[ni], objects[ns] = o1, o2
-        names.append((f'SigIz{k}', ni))
-        ix0, iy0, ix1, iy1 = ink_bbox(w, h, rgba)
-        bl = baseline_row(w, h, rgba)
+        if vector:
+            w, h, (ix0, iy0, ix1, iy1), bl = sig_vector.geom(samples[p])
+        else:
+            ni, ns = n_img + k * 2, n_img + k * 2 + 1
+            (w, h, rgba), o1, o2 = png_obj(samples[p], ni, ns)
+            objects[ni], objects[ns] = o1, o2
+            names.append((f'SigIz{k}', ni))
+            ix0, iy0, ix1, iy1 = ink_bbox(w, h, rgba)
+            bl = baseline_row(w, h, rgba)
         sc = norm_scale(ix1 - ix0 + 1, iy1 - iy0 + 1) * rng.uniform(0.97, 1.03)
         x = nx0 + 2.0 + text_w(name, FONT_SIZE) + rng.uniform(8, 14) - ix0 * sc
         y = ny - rng.uniform(2.0, 3.0) - (h - 1 - bl) * sc
-        content += f'q {w*sc:.2f} 0 0 {h*sc:.2f} {x:.2f} {y:.2f} cm /SigIz{k} Do Q\n'.encode()
+        if vector:
+            ops, seed = sig_vector.draw(samples[p], rng, w*sc, h*sc, x, y)
+            content += ops
+            picks[-1] = f'{p}#{seed}'
+        else:
+            content += f'q {w*sc:.2f} 0 0 {h*sc:.2f} {x:.2f} {y:.2f} cm /SigIz{k} Do Q\n'.encode()
     content += b'Q\n'
 
-    n_content = n_img + 2 * len(halves)
+    n_content = n_img if vector else n_img + 2 * len(halves)
     objects[n_content] = (f'{n_content} 0 obj\n<</Length {len(content)}>>\nstream\n'.encode()
                           + content + b'endstream\nendobj\n')
 
@@ -171,9 +186,11 @@ def sign_izjava(blank, out_pdf, samples=None, rng=None, name=NAME, contact=CONTA
     add_f = f'/Font<</FIZ {n_font} 0 R>>'.encode()
     add_x = b'/XObject<<' + b''.join(f'/{nm} {num} 0 R '.encode() for nm, num in names) + b'>>'
     res_new = res
-    for key, add, entries in ((b'Font', add_f, f'/FIZ {n_font} 0 R '.encode()),
-                              (b'XObject', add_x,
-                               b''.join(f'/{nm} {num} 0 R '.encode() for nm, num in names))):
+    adds = [(b'Font', add_f, f'/FIZ {n_font} 0 R '.encode()),
+            (b'XObject', add_x, b''.join(f'/{nm} {num} 0 R '.encode() for nm, num in names))]
+    if vector:                          # пути не ссылаются на XObject
+        adds = adds[:1]
+    for key, add, entries in adds:
         cur = _value(res_new, key)
         if cur is None:
             res_new = res_new[:res_new.rfind(b'>>')] + add + b'>>'
@@ -195,4 +212,5 @@ def sign_izjava(blank, out_pdf, samples=None, rng=None, name=NAME, contact=CONTA
 
 if __name__ == '__main__':
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
-    print(sign_izjava(args[0], args[1], force='--force' in sys.argv))
+    print(sign_izjava(args[0], args[1], force='--force' in sys.argv,
+                      mode=signatures.mode(sys.argv)))

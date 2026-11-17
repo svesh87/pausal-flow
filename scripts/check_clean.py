@@ -68,11 +68,12 @@ VALUES_SKIP = ('profile.example.json', 'LICENSE')
 SKIP_EXT = ('.pdf', '.xlsx', '.png', '.gpg', '.ppm', '.pgm', '.pyc', '.tar', '.gz')
 # Поля конфига, которые обязаны быть видны в движке: это названия продуктов и сервисов,
 # а не реквизиты владельца. Без них инструкции ломаются — «выгрузи в …» непонятно куда.
+# `signatures.mode` — переключатель движка (`png`/`vector`), его значения и есть код.
 SKIP_VALUES = (('mail', 'supplier_invoices_from'),
                ('integrations', 'tasks', 'kind'), ('integrations', 'tasks', 'mcp'),
                ('integrations', 'chat', 'kind'), ('integrations', 'chat', 'mcp'),
                ('integrations', 'mail', 'kind'), ('integrations', 'mail', 'mcp'),
-               ('integrations', 'accounting', 'kind'))
+               ('integrations', 'accounting', 'kind'), ('signatures', 'mode'))
 
 FORMS = [
     ('жиро-счёт', re.compile(r'\b\d{3}-\d{13}-\d{2}\b')),

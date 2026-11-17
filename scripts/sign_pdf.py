@@ -2,15 +2,17 @@
 """Вставка подписи в acceptance-PDF инкрементальным обновлением.
 
 Использование:
-    python3 scripts/sign_pdf.py input.pdf output.pdf [signatures_dir]
+    python3 scripts/sign_pdf.py input.pdf output.pdf [--force] [--png|--vector]
 
 Что делает:
 - находит на последней странице строки `_______ <имя обвезника>` (pdftotext -bbox),
   имя берётся из `profile.json`;
-- выбирает случайные PNG-подписи из signatures/ (разные для колонок EN и ES);
-- дописывает в конец PDF объекты картинок (RGB + SMask), контент-стрим с их
+- выбирает случайные подписи, разные для колонок EN и ES: PNG-образцы или векторные
+  шаблоны — по `signatures.mode` в профиле, флаг перекрывает на один запуск;
+- PNG-режим: дописывает в конец PDF объекты картинок (RGB + SMask), контент-стрим с их
   отрисовкой, обновлённые объекты контента и ресурсов страницы и новую xref-секцию
-  с /Prev — исходные байты файла не меняются вовсе.
+  с /Prev; векторный — только контент-стрим с путями (`sig_vector.py`) и обновлённый
+  контент страницы. Исходные байты файла не меняются вовсе.
 
 Структура документа не зашита: страницы, /Contents и /Resources находятся разбором
 (scripts/pdfobj.py), поддержаны варианты «ссылка на поток», «массив в объекте» и
@@ -30,6 +32,7 @@ from pdfobj import (load, page_list, page_field, media_box, page_streams,
                     hline_in_box)
 import reqs
 import signatures
+import sig_vector
 
 # имя под линией подписи — якорь поиска: в акте это `______ <имя обвезника>`
 SIGNER_WORDS = reqs.get('entrepreneur.name').split()
@@ -188,12 +191,15 @@ def _patch_resources(doc, pnum, rf, entries, objects):
                              '— остановиться и разобрать руками (scripts/pdf_probe.py)')
 
 
-def sign(pdf_in, pdf_out, samples=None, rng=None, force=False):
+def sign(pdf_in, pdf_out, samples=None, rng=None, force=False, mode='png'):
     """Подписать акт: по одной подписи на каждую линию `______ <имя>` последней страницы.
 
-    `samples` — {имя: байты PNG}; по умолчанию расшифровывается контейнер
-    `signatures/samples.tar.gz.gpg` (один вызов gpg за запуск)."""
+    `mode='png'` — `samples` это {имя: байты PNG}, по умолчанию расшифровывается контейнер
+    `signatures/samples.tar.gz.gpg` (один вызов gpg за запуск). `mode='vector'` — `samples`
+    это {имя: шаблон} из `signatures.load_vectors()`, подпись ложится путями (`sig_vector.py`),
+    картинок в документ не добавляется. Посадка в обоих режимах считается одинаково."""
     ensure_new(pdf_out, force)
+    vector = mode == 'vector'
     rng = rng or random.SystemRandom()
     doc = load(pdf_in)
     pages = page_list(doc)
@@ -215,7 +221,7 @@ def sign(pdf_in, pdf_out, samples=None, rng=None, force=False):
     ctm = residual_ctm(b''.join(page_streams(doc, pnum)))
 
     n0 = doc['size']
-    samples = samples or signatures.load()
+    samples = samples or (signatures.load_vectors() if vector else signatures.load())
     sigs = sorted(samples)
     objects = {}
     picks, chosen = [], []
@@ -227,12 +233,15 @@ def sign(pdf_in, pdf_out, samples=None, rng=None, force=False):
     for k, (lx0, lx1, ly) in enumerate(lines):
         pool = [s for s in sigs if s not in chosen] or sigs
         p = rng.choice(pool); chosen.append(p); picks.append(p)
-        n_img, n_sm = n0 + k*2, n0 + k*2 + 1
-        (w, h, rgba), o1, o2 = png_obj(samples[p], n_img, n_sm)
-        objects[n_img], objects[n_sm] = o1, o2
-        names.append((f'SvSig{k}', n_img))
-        ix0, iy0, ix1, iy1 = ink_bbox(w, h, rgba)
-        bl = baseline_row(w, h, rgba)
+        if vector:
+            w, h, (ix0, iy0, ix1, iy1), bl = sig_vector.geom(samples[p])
+        else:
+            n_img, n_sm = n0 + k*2, n0 + k*2 + 1
+            (w, h, rgba), o1, o2 = png_obj(samples[p], n_img, n_sm)
+            objects[n_img], objects[n_sm] = o1, o2
+            names.append((f'SvSig{k}', n_img))
+            ix0, iy0, ix1, iy1 = ink_bbox(w, h, rgba)
+            bl = baseline_row(w, h, rgba)
         sc = norm_scale(ix1 - ix0 + 1, iy1 - iy0 + 1) * rng.uniform(0.97, 1.03)
         maxw = (lx1 - lx0) * 1.05          # шире линии подписи не растягиваем
         if (ix1 - ix0 + 1) * sc > maxw:
@@ -242,20 +251,27 @@ def sign(pdf_in, pdf_out, samples=None, rng=None, force=False):
         # по вертикали — базовая линия письма чуть ниже линии подписи, чтобы штрихи
         # её заметно пересекали (одинаково для образцов с выносом и без)
         Y = ly - rng.uniform(2.0, 3.0) - (h - 1 - bl) * sc
-        content += f'q {w*sc:.2f} 0 0 {h*sc:.2f} {X:.2f} {Y:.2f} cm /SvSig{k} Do Q\n'.encode()
+        if vector:
+            ops, seed = sig_vector.draw(samples[p], rng, w*sc, h*sc, X, Y)
+            content += ops
+            picks[-1] = f'{p}#{seed}'
+        else:
+            content += f'q {w*sc:.2f} 0 0 {h*sc:.2f} {X:.2f} {Y:.2f} cm /SvSig{k} Do Q\n'.encode()
     content += b'Q\n'
 
-    n_content = n0 + 2 * len(lines)
+    n_content = n0 if vector else n0 + 2 * len(lines)
     objects[n_content] = (f'{n_content} 0 obj\n<</Length {len(content)}>>\nstream\n'.encode()
                           + content + b'endstream\nendobj\n')
     entries = b''.join(f'/{nm} {num} 0 R '.encode() for nm, num in names)
     _patch_contents(doc, pnum, cf, n_content, objects)
-    _patch_resources(doc, pnum, rf, entries, objects)
+    if not vector:                      # пути не ссылаются на ресурсы — словарь не трогаем
+        _patch_resources(doc, pnum, rf, entries, objects)
     write_update(doc, pdf_out, objects)
     return picks, pidx + 1
 
 
 if __name__ == '__main__':
-    args = [a for a in sys.argv[1:] if a != '--force']
-    picks, page = sign(args[0], args[1], force='--force' in sys.argv)
-    print(f'picked: {picks} (страница {page})')
+    args = [a for a in sys.argv[1:] if a not in ('--force', '--png', '--vector')]
+    mode = signatures.mode(sys.argv)
+    picks, page = sign(args[0], args[1], force='--force' in sys.argv, mode=mode)
+    print(f'picked [{mode}]: {picks} (страница {page})')

@@ -145,3 +145,87 @@ def test_no_decisions_is_quiet():
     """Без решений в данных проверка молчит: клон без данных и свежее дерево — норма."""
     assert tax.eco_ledger([], {}, TODAY) == []
     assert tax.eco_alerts([], {}, set(), TODAY) == []
+
+
+def test_offbank_payments_are_read_from_data(tmp_path, monkeypatch):
+    """Налоги, уплаченные не со счёта ИП, берутся из файла; период паушала — из колонки."""
+    taxes = tmp_path / 'finance' / 'taxes'
+    taxes.mkdir(parents=True)
+    (taxes / 'offbank.csv').write_text('date,kind,amount,period,note\n'
+                                       '2026-10-05,eko,307.62,,квитанция\n'
+                                       '2026-11-14,pio,23947.02,2026-11,карта\n')
+    monkeypatch.setattr(tax, 'DATA', str(tmp_path))
+    got = tax.offbank()
+    assert [(r['kind'], r['amount'], r['period']) for r in got] == [
+        ('eko', Decimal('307.62'), '2026-10'), ('pio', Decimal('23947.02'), '2026-11')]
+
+
+def test_offbank_unknown_kind_fails(tmp_path, monkeypatch):
+    """Опечатка в виде налога — падение, а не молча потерянный платёж."""
+    taxes = tmp_path / 'finance' / 'taxes'
+    taxes.mkdir(parents=True)
+    (taxes / 'offbank.csv').write_text('date,kind,amount,period,note\n2026-10-05,eco,1.00,,\n')
+    monkeypatch.setattr(tax, 'DATA', str(tmp_path))
+    try:
+        tax.offbank()
+    except SystemExit as e:
+        assert 'eco' in str(e)
+    else:
+        raise AssertionError('неизвестный вид налога прошёл молча')
+
+
+def test_offbank_file_is_optional(tmp_path, monkeypatch):
+    """Без файла платежей не со счёта ИП — пусто, а не ошибка."""
+    monkeypatch.setattr(tax, 'DATA', str(tmp_path))
+    assert tax.offbank() == []
+
+
+def test_quarters_without_thousands_separator():
+    """«1073.58» в квартальной разбивке — тысяча, а не 73.58."""
+    txt = (DECISION_TXT.replace('1 220,44', '4 354,00')
+           .replace('300.93               304.27               307.62             307.62',
+                    '1073.58              1085.52              1097.45            1097.45'))
+    d = tax.eco_decision(txt)
+    assert d['quarters'] == [Decimal('1073.58'), Decimal('1085.52'),
+                             Decimal('1097.45'), Decimal('1097.45')]
+
+
+def test_quarters_must_add_up_to_total():
+    """Кварталы, не сложившиеся в годовую сумму, — сломанный разбор, а не данные."""
+    try:
+        tax.eco_decision(DECISION_TXT.replace('300.93', '200.93'))
+    except SystemExit:
+        return
+    raise AssertionError('кривая разбивка прошла молча')
+
+
+def test_opomena_payment_counts_principal_only():
+    """Платёж по опомене гасит главный долг; камата квартал не оплачивает."""
+    o = tax.eco_opomena(OPOMENA_TXT.replace('ОПОМЕНУ', 'дана 29.05.2026. године, издаје\nОПОМЕНУ'))
+    assert o['principal'] == Decimal('307.62') and o['total'] == Decimal('313.33')
+    assert tax.eco_principal('2026-05-30', Decimal('313.33'), [o]) == Decimal('307.62')
+    assert tax.eco_principal('2026-05-30', Decimal('307.62'), [o]) == Decimal('307.62')
+
+
+def test_late_decision_moves_due_date():
+    """Кварталы, доспевшие до решения, доплачиваются в 15 дней от него — не просрочка."""
+    late = {2026: {**DECISION[2025], 'year': 2026, 'issued': datetime.date(2026, 10, 2)}}
+    assert tax.eco_due(2026, 1, late) == datetime.date(2026, 10, 17)
+    assert tax.eco_due(2026, 4, late) == datetime.date(2027, 1, 15)
+    ledger = tax.eco_ledger([('2026-05-30', Decimal('307.62'))], late,
+                            datetime.date(2026, 10, 10))
+    assert not any('ПРОСРОЧЕН' in r['status'] for r in ledger if r['year'] == 2026)
+
+
+def test_fully_paid_year_still_names_next_payment():
+    """Год уплачен целиком — строка про эко-таксу всё равно есть: срок уже в следующем году."""
+    ledger = tax.eco_ledger([('2025-09-03', Decimal('1220.44'))], DECISION,
+                            datetime.date(2025, 11, 1))
+    alerts = tax.eco_alerts(ledger, DECISION, {2025}, datetime.date(2025, 11, 1))
+    assert any('2026 Q1' in a and '307.62' in a and '15.04.2026' in a for a in alerts)
+
+
+def test_portal_fee_is_two_percent_with_minimum():
+    """Комиссия портала — 2 %, но не меньше 50: обе ветки по настоящим квитанциям."""
+    assert tax.eco_without_fee(Decimal('357.62')) == Decimal('307.62')
+    assert tax.eco_without_fee(Decimal('3499.76')) == Decimal('3431.14')

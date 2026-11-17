@@ -72,6 +72,9 @@
   "gpg": {
     "recipient": "you@example.com"
   },
+  "signatures": {
+    "mode": "png"
+  },
   "limits": {
     "pausal_rsd_year": 6000000
   }

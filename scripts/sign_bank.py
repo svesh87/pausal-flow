@@ -3,7 +3,7 @@
 
 Использование:
     python3 scripts/sign_bank.py blank.pdf out.pdf invoice.pdf [--date DD.MM.YYYY]
-                                [--place <место>] [--force]
+                                [--place <место>] [--force] [--png|--vector]
 
 Место издавања и прочие реквизиты — из `profile.json`; `--place` только переопределяет.
 Готовый результат не перезаписывается без `--force`: подписанный документ уже
@@ -16,7 +16,8 @@
   форма банка со временем меняется, фиксированных координат нет;
 - заполняет таблицу PODACI ZA STATISTIKU (redni broj=1, šifra osnova=302,
   br./godina fakture, «Plaćanje po fakturi br. N», EUR-сумма), Mesto i datum;
-- ставит случайную подпись из signatures/ над «Pečat i potpis korisnika naplate»;
+- ставит случайную подпись над «Pečat i potpis korisnika naplate»: картинку-образец или
+  искажённый векторный шаблон — по `signatures.mode` (флаги `--png`/`--vector` перекрывают);
 - всё — инкрементальным обновлением: исходные байты бланка не меняются;
 - сербское «ć» — внедрённый Liberation Sans (/Differences cacute).
 
@@ -29,6 +30,7 @@ from sign_pdf import ink_bbox, png_obj, baseline_row, norm_scale
 from pdfobj import pdf_date, ensure_new
 import reqs
 import signatures
+import sig_vector
 
 TTF_PATH='/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf'
 CACUTE_CODE=230  # байт для ć в нашей кодировке
@@ -255,8 +257,9 @@ def pdftext(path):
                           capture_output=True).stdout.decode('utf-8','replace')
 
 def sign_bank(blank, out_pdf, invoice_pdf, date_str=None, place=None, samples=None, rng=None,
-              opis='Pla\u0107anje po fakturi br. {inv}', name=None, force=False):
+              opis='Pla\u0107anje po fakturi br. {inv}', name=None, force=False, mode='png'):
     ensure_new(out_pdf, force)
+    vector=mode=='vector'
     place = place or reqs.get('entrepreneur.issue_place')
     rng=rng or random.SystemRandom()
     # --- кросс-проверки ---
@@ -397,12 +400,16 @@ def sign_bank(blank, out_pdf, invoice_pdf, date_str=None, place=None, samples=No
             f'/Differences[{CACUTE_CODE} /cacute]>>'
             f'>>\nendobj\n').encode()
     # подпись
-    samples=samples or signatures.load()
+    samples=samples or (signatures.load_vectors() if vector else signatures.load())
     sp=rng.choice(sorted(samples))
-    (iw,ih,rgba),o_img,o_sm=png_obj(samples[sp],n_img,n_sm)
-    ix0,iy0,ix1,iy1=ink_bbox(iw,ih,rgba)
+    if vector:
+        iw,ih,(ix0,iy0,ix1,iy1),bl=sig_vector.geom(samples[sp])
+    else:
+        (iw,ih,rgba),o_img,o_sm=png_obj(samples[sp],n_img,n_sm)
+        ix0,iy0,ix1,iy1=ink_bbox(iw,ih,rgba)
     sx0,sx1,sy=find_hline_above(blank,spi+1,lbl_pecat)
-    bl=baseline_row(iw,ih,rgba)
+    if not vector:
+        bl=baseline_row(iw,ih,rgba)
     # масштаб — тот же эталон, что и в акте клиента (см. signatures/METRICS.md)
     sc=norm_scale(ix1-ix0+1,iy1-iy0+1)*rng.uniform(0.97,1.03)
     ink_w=(ix1-ix0+1)*sc
@@ -424,7 +431,10 @@ def sign_bank(blank, out_pdf, invoice_pdf, date_str=None, place=None, samples=No
     work[spi]['fields']+=sig_fields
     work[spi]['sig']=(iw,ih,sc,sig_x,sig_y)
 
-    objs=[(n_font,o_font),(n_fd,o_fd),(n_ff,o_ff),(n_img,o_img),(n_sm,o_sm)]
+    objs=[(n_font,o_font),(n_fd,o_fd),(n_ff,o_ff)]
+    if not vector:                  # номера n_img/n_sm в векторном режиме просто не заняты
+        objs+=[(n_img,o_img),(n_sm,o_sm)]
+    seed=None
     next_num=n0+5
     patched_pages={}; patched_res={}
     for idx,item in sorted(work.items()):
@@ -437,7 +447,11 @@ def sign_bank(blank, out_pdf, invoice_pdf, date_str=None, place=None, samples=No
             cs+=f'BT /FSIG {size_pt} Tf {x:.2f} {y:.2f} Td ('.encode()+enc_text(text)+b') Tj ET\n'
         if item['sig']:
             w_,h_,sc_,x_,y_=item['sig']
-            cs+=f'q {w_*sc_:.2f} 0 0 {h_*sc_:.2f} {x_:.2f} {y_:.2f} cm /SigB Do Q\n'.encode()
+            if vector:
+                ops,seed=sig_vector.draw(samples[sp],rng,w_*sc_,h_*sc_,x_,y_)
+                cs+=ops
+            else:
+                cs+=f'q {w_*sc_:.2f} 0 0 {h_*sc_:.2f} {x_:.2f} {y_:.2f} cm /SigB Do Q\n'.encode()
         cs+=b'Q\n'
         n_cs=next_num; next_num+=1
         objs.append((n_cs,f'{n_cs} 0 obj\n<</Length {len(cs)}>>\nstream\n'.encode()
@@ -462,7 +476,8 @@ def sign_bank(blank, out_pdf, invoice_pdf, date_str=None, place=None, samples=No
             if mfont: ri=ri[:mfont.end()]+f'/FSIG {n_font} 0 R '.encode()+ri[mfont.end():]
             else: ri+=f'/Font<</FSIG {n_font} 0 R>>'.encode()
             mx=re.search(rb'/XObject\s*<<',ri)
-            if mx: ri=ri[:mx.end()]+f'/SigB {n_img} 0 R '.encode()+ri[mx.end():]
+            if vector: pass         # пути не ссылаются на XObject
+            elif mx: ri=ri[:mx.end()]+f'/SigB {n_img} 0 R '.encode()+ri[mx.end():]
             else: ri+=f'/XObject<</SigB {n_img} 0 R>>'.encode()
             patched_res[info['res_num']]=ri
     for num,ri in patched_res.items():
@@ -502,7 +517,8 @@ def sign_bank(blank, out_pdf, invoice_pdf, date_str=None, place=None, samples=No
     x+=f'>>\nstartxref\n{xref_off}\n%%EOF\n'.encode()
     out+=x
     open(out_pdf,'wb').write(bytes(out))
-    return dict(invoice=inv_no, amount=amount_bank, year=inv_year, signature=os.path.basename(sp),
+    sig_name=os.path.basename(sp)+(f'#{seed}' if vector else '')
+    return dict(invoice=inv_no, amount=amount_bank, year=inv_year, signature=sig_name,
                 place_date=f'{place}, {date_str}', opis=opis.format(inv=inv_no),
                 pages=dict(table=pi+1, sign=spi+1), name=name or '')
 
@@ -515,4 +531,5 @@ if __name__=='__main__':
         if a=='--opis': kw['opis']=sys.argv[i+1]
         if a=='--name': kw['name']=sys.argv[i+1]
     kw['force']='--force' in sys.argv
+    kw['mode']=signatures.mode(sys.argv)
     print(sign_bank(args[0],args[1],args[2],**kw))

@@ -57,7 +57,8 @@ ip-data/                        ← данные, приватный git
 ├── months/ГГГГ_ММ/                 период работ: задачи, акт, инвойс, бланк банка, паушал
 ├── finance/                        выписки, платежи, налоги, КПО, отчёт
 ├── contracts/<контрагент>/         редакции договора + versions.md
-└── signatures/samples.tar.gz.gpg   образцы подписи, только зашифрованные
+└── signatures/                     образцы подписи (samples) и векторные шаблоны (vectors),
+                                    только зашифрованные `.tar.gz.gpg`
 ```
 
 Внутри данных движок всегда зовётся `engine/…`, поэтому где он лежит физически — дело
@@ -117,6 +118,7 @@ TASKS_DATA=tmp/example-data python3 engine/scripts/kpo_book.py --offline
 | «Обнови налоги» | новые документы налоговой → `finance/taxes/statements/` + реестр, сроки эко-таксы |
 | «Обнови отчёт» | пересобрать `finance/report.md` из CSV |
 | «Прими документы» | разобрать `inbox/`: определить тип каждого файла и разложить |
+| «Сделай уплатницы» | бланки паушала за месяц с IPS QR для оплаты наличными → `finance/taxes/slips/` |
 
 ### Настройка — навыки `setup` и `signatures`
 
@@ -126,6 +128,7 @@ TASKS_DATA=tmp/example-data python3 engine/scripts/kpo_book.py --offline
 | «Проверь окружение» | `doctor.py` и разбор того, что он показал |
 | «Собери библиотеку подписей» | сканы → набор PNG → разметка → зашифрованный контейнер |
 | «Добавь образцы подписи» | то же для новых сканов, старые образцы сохраняются |
+| «Векторизуй образцы» | 2–4 лучших образца → векторные шаблоны → свой зашифрованный контейнер |
 
 ## Что генерируется и чем
 
@@ -135,14 +138,16 @@ TASKS_DATA=tmp/example-data python3 engine/scripts/kpo_book.py --offline
 |---|---|
 | `finance/bank/transactions_{eur,rsd}.csv` | `scripts/parse_izvod.py` |
 | `finance/taxes/payments.md` (реестр платежей и кварталы эко-таксы) | `scripts/tax_registry.py` |
+| `finance/taxes/slips/ГГГГ-ММ.pdf` (уплатницы паушала для оплаты наличными, по запросу) | `scripts/pay_slips.py` |
 | `finance/payments/registry.md` | `scripts/payments_registry.py` |
 | `finance/report.md` | `scripts/build_report.py` |
 | `finance/kpo/kpo_ГГГГ.pdf`, `finance/kpo/entries.md` | `scripts/kpo_book.py` |
 | `.cache/nbs_rates.json` | `scripts/kpo_book.py` (кэш курсов НБС, вне git) |
 | `months/ГГГГ_ММ/pausal/*.xlsx` | `scripts/pausal_import.py ГГГГ_ММ` |
 | `signatures/METRICS.md`, `signatures/metrics.json` | `scripts/sig_metrics.py` |
+| `signatures/vectors.tar.gz.gpg` | `scripts/sig_trace.py --pack` (из `.venv`, разово) |
 
-Всё, кроме двух последних (они по месяцу и по набору образцов), пересобирает одна команда:
+Всё, кроме трёх последних (они по месяцу и по набору образцов), пересобирает одна команда:
 
 ```bash
 engine/scripts/rebuild_all.sh

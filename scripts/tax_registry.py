@@ -36,11 +36,17 @@ ECO_DUE = ((4, 15), (7, 15), (10, 15), (1, 15))
 ECO_PRIJAVA_DUE = (4, 30)       # пријава — до 30 апреля года, за который определяется накнада
 ECO_PRIJAVA_FROM = (3, 1)       # раньше марта напоминать не о чем: год только начался
 ECO_DECISION_FROM = 9           # решение за год выставляют осенью — до сентября его и не ждём
+ECO_LATE_DAYS = 15              # «доспеле, а неизмирене обавезе … у року од 15 дана» от решения
+# Комиссия портала ЛПА — 2 % суммы, но не меньше 50 (квитанции: 307,62 → 50,00,
+# 3 431,14 → 68,62). В выписке она списывается одной суммой с накнадой.
+ECO_PORTAL_FEE_MIN = Decimal('50.00')
+ECO_PORTAL_FEE_RATE = Decimal('0.02')
 
-# Сумма в решении: две дробные цифры обязательны, разряды через пробел или точку. Форма
-# нужна именно такая узкая: в строке «Укупно за период 01.01.2025 - 31.12.2025.  1 220,44»
-# рядом с суммой стоят даты, и жадный `[\d.,]+` склеивал их в одно число.
-ECO_MONEY = r'\d{1,3}(?:[ \xa0.]\d{3})*[,.]\d{2}'
+# Сумма в решении: две дробные цифры обязательны, разряды через пробел или точку — или без
+# разделителя вовсе («1073.58» в квартальной разбивке). Края сторожат оглядки: в строке
+# «Укупно за период 01.01.2025 - 31.12.2025.  1 220,44» рядом с суммой стоят даты, и жадный
+# `[\d.,]+` склеивал их в одно число, а без оглядок от «1073.58» отрезался хвост «073.58».
+ECO_MONEY = r'(?<![\d.,])(?:\d{1,3}(?:[ \xa0.]\d{3})+|\d+)[,.]\d{2}(?![\d,]|\.\d)'
 
 
 ACCOUNTS = {  # уплатные счета публичных приходов (18 цифр) — главный признак
@@ -125,14 +131,40 @@ def eco_decision(txt):
     amounts = [eco_money(m) for m in re.findall(ECO_MONEY, quarters.group(1))]
     if len(amounts) != 4:
         return None
+    if sum(amounts) != eco_money(total.group(1)):
+        # кварталы обязаны сложиться в годовую сумму: иначе разбор формы съехал, и молча
+        # считать по кривым суммам хуже, чем упасть
+        sys.exit(f'решение по эко-таксе: кварталы {amounts} не сходятся с годовой суммой '
+                 f'{total.group(1)} — форма документа изменилась?')
     # Реквизиты уплаты берутся строго из фразы про саму накнаду: ниже в решении есть второй
     # счёт и позив на број — административная такса на случай жалобы, и по общему шаблону
     # «рачун број …» находится именно он. Пробелы через \s+: pdftotext рвёт фразу по строкам.
     pay = re.search(r'уплаћује се на рачун број\s+(\d{3}-\d+-\d+)\s+са\s+позивом\s+на'
                     r'\s+број\s+(\d{2}\s+\d+)', txt)
+    # Дата решения нужна для позднего решения: кварталы, доспевшие до него, доплачиваются
+    # «у року од 15 дана од дана достављања решења», а не по квартальным датам.
+    issued = re.search(r'дана\s+(\d{2})\.(\d{2})\.(\d{4})\.\s+године\s+доноси', txt)
     return {'year': int(year.group(1)), 'total': eco_money(total.group(1)),
             'quarters': amounts, 'account': pay.group(1) if pay else '',
-            'ref': pay.group(2) if pay else ''}
+            'ref': pay.group(2) if pay else '',
+            'issued': datetime.date(*map(int, issued.groups()[::-1])) if issued else None}
+
+
+def eco_opomena(txt):
+    """Опомена об эко-таксе: {date, principal, total} или None, если это не опомена.
+
+    Платёж по опомене приходит одной суммой «главни дуг + камата», и вся она засчитывалась
+    бы в квартал. Камата налогом не является и квартал не оплачивает, поэтому опомену
+    читаем ради одного — отделить в таком платеже главный долг.
+    """
+    if 'ОПОМЕНУ' not in txt:
+        return None
+    date = re.search(r'дана\s+(\d{2})\.(\d{2})\.(\d{4})\.\s+године,\s+издаје', txt)
+    row = re.search(rf'\d{{3}}-\d+-\d+\s+({ECO_MONEY})\s+({ECO_MONEY})\s+({ECO_MONEY})', txt)
+    if not (date and row):
+        return None
+    return {'date': datetime.date(*map(int, date.groups()[::-1])),
+            'principal': eco_money(row.group(1)), 'total': eco_money(row.group(3))}
 
 
 def eco_decisions():
@@ -151,6 +183,28 @@ def eco_decisions():
     return out
 
 
+def eco_opomene():
+    """Все опомене по эко-таксе из taxes/statements/ГГГГ/012_*.pdf."""
+    pattern = os.path.join(DATA, 'finance', 'taxes', 'statements', '*', '012_*.pdf')
+    return [o for o in (eco_opomena(pdftext(p)) for p in sorted(glob.glob(pattern))) if o]
+
+
+def eco_without_fee(gross):
+    """Накнада из списания картой через портал: списано = сумма + max(50, 2 % суммы)."""
+    net = gross - ECO_PORTAL_FEE_MIN
+    if net * ECO_PORTAL_FEE_RATE <= ECO_PORTAL_FEE_MIN:
+        return net
+    return (gross / (1 + ECO_PORTAL_FEE_RATE)).quantize(Decimal('0.01'))
+
+
+def eco_principal(date, amount, opomene):
+    """Сколько из платежа идёт в накнаду: без каматы, если это уплата по опомене."""
+    for o in opomene:
+        if amount == o['total'] and date >= o['date'].isoformat():
+            return o['principal']
+    return amount
+
+
 def eco_expected(year, decisions):
     """Квартальные начисления года и словами — откуда они взялись.
 
@@ -167,9 +221,20 @@ def eco_expected(year, decisions):
     return [None] * 4, 'решения нет'
 
 
-def eco_due(year, q):
+def eco_due(year, q, decisions=None):
+    """Срок квартала. Решение, вынесенное после квартального срока, его отодвигает.
+
+    Пока решения нет, платится аконтација, а разница до утверждённой суммы доспева
+    в 15 дней от вручения решения. Дату вручения документ не знает (еСандуче сообщает её
+    письмом), поэтому отсчёт — от даты решения: это самый ранний возможный срок, и тревога
+    придёт не позже настоящей.
+    """
     month, day = ECO_DUE[q - 1]
-    return datetime.date(year + 1 if q == 4 else year, month, day)
+    due = datetime.date(year + 1 if q == 4 else year, month, day)
+    issued = ((decisions or {}).get(year) or {}).get('issued')
+    if issued and issued > due:
+        due = issued + datetime.timedelta(days=ECO_LATE_DAYS)
+    return due
 
 
 def _status(amount, paid, due, today):
@@ -224,9 +289,33 @@ def eco_ledger(payments, decisions, today):
             left -= take
             spill = True
     return [{'year': y, 'q': q, 'amount': amounts[y][0][q - 1], 'source': amounts[y][1],
-             'due': eco_due(y, q), 'paid': paid[(y, q)],
-             'status': _status(amounts[y][0][q - 1], paid[(y, q)], eco_due(y, q), today)}
+             'due': eco_due(y, q, decisions), 'paid': paid[(y, q)],
+             'status': _status(amounts[y][0][q - 1], paid[(y, q)], eco_due(y, q, decisions),
+                               today)}
             for y in sorted(amounts) for q in (1, 2, 3, 4)]
+
+
+def offbank():
+    """Налоги, уплаченные не со счёта ИП, из taxes/offbank.csv.
+
+    Портал ЛПА принимает любую карту, а без работающего банка ИП и паушал уходит как
+    придётся — в выписку такие платежи не попадают, и без этого файла период выглядел бы
+    неуплаченным. Файл ведётся руками по квитанциям; колонки `date,kind,amount,period,note`:
+    `kind` — porez, pio, zdro, nes или eko; `period` — ГГГГ-ММ, за который начислен паушал
+    (пусто — по дате уплаты, так и у эко-таксы); суммы — без комиссии портала.
+    """
+    path = os.path.join(DATA, 'finance', 'taxes', 'offbank.csv')
+    if not os.path.exists(path):
+        return []
+    kinds = {k for k, _ in KINDS}
+    out = []
+    for r in csv.DictReader(open(path)):
+        if r['kind'] not in kinds:
+            sys.exit(f'{os.path.relpath(path, DATA)}: неизвестный вид налога {r["kind"]!r} '
+                     f'— ожидается один из {", ".join(sorted(kinds))}')
+        out.append({'date': r['date'], 'kind': r['kind'], 'amount': Decimal(r['amount']),
+                    'period': r.get('period') or r['date'][:7]})
+    return out
 
 
 def eco_prijava_years():
@@ -256,6 +345,17 @@ def eco_alerts(ledger, decisions, prijava_years, today):
         alerts.append(f'следующий платёж: {nxt["year"]} Q{nxt["q"]} — {fmt0(nxt["amount"])} '
                       f'до {ru_date(nxt["due"])} ({nxt["source"]})'
                       + (f'; {where}' if where else ''))
+    elif ledger:
+        # всё уплачено до конца года — молчать нельзя: следующий срок уже в будущем году,
+        # и платится он аконтацијом по последнему решению
+        y = ledger[-1]['year'] + 1
+        amount = eco_expected(y, decisions)[0][0]
+        if amount is not None:
+            acting = decisions.get(y - 1, {})
+            alerts.append(f'{y - 1} год уплачен полностью; следующий платёж: {y} Q1 — '
+                          f'{fmt0(amount)} до {ru_date(eco_due(y, 1))} (аконтација по решению '
+                          f'{y - 1}); счёт {acting.get("account")}, позив на број '
+                          f'{acting.get("ref")}')
     if ledger and today.year not in decisions and today.month >= ECO_DECISION_FROM:
         alerts.append(f'решения за {today.year} год в данных нет, а его уже выставляют — '
                       'проверить портал ЛПА; до него платится аконтација')
@@ -277,13 +377,17 @@ def main():
     pay_dates = defaultdict(set)
     unknown = []
     eco_payments = []
+    opomene = eco_opomene()
     for r in rows:
         k = kind_of(r['purpose'], r['counterparty_account'])
         if k is None:
             unknown.append(r)
             continue
         if k == 'eko':
-            eco_payments.append((r['date'], Decimal(r['amount'])))
+            amount = Decimal(r['amount'])
+            if 'EUPRAVA' in r['purpose'].upper():
+                amount = eco_without_fee(amount)  # картой через портал — вместе с комиссией
+            eco_payments.append((r['date'], eco_principal(r['date'], amount, opomene)))
         m = re.search(r'za\s+(\d{2})/(\d{4})', r['purpose'])
         if m and k != 'eko':
             per = f'{m.group(2)}-{m.group(1)}'
@@ -291,13 +395,20 @@ def main():
             per = r['date'][:7]      # эко и нераспознанные периоды — по дате уплаты
         periods[per][k] += Decimal(r['amount'])
         pay_dates[per].add(r['date'])
+    extra = offbank()
+    for r in extra:
+        periods[r['period']][r['kind']] += r['amount']
+        pay_dates[r['period']].add(r['date'] + '*')
+        if r['kind'] == 'eko':
+            eco_payments.append((r['date'], r['amount']))
 
     out = ['# Реестр уплаченных налогов', '',
            f'Генерируется `{reqs.script_ref("tax_registry.py")}` '
            'из `bank/transactions_rsd.csv` — команда',
            '«Обнови налоги». Период — месяц, за который начислен паушальный платёж; эко-такса',
            '(накнада за заштиту и унапређивање животне средине) — годовое решение, показана',
-           'в месяце уплаты. Начисления для сверки — решения в `taxes/statements/ГГГГ/`.', '',
+           'в месяце уплаты. Начисления для сверки — решения в `taxes/statements/ГГГГ/`.',
+           'Дата со звёздочкой — платёж не со счёта ИП, из `taxes/offbank.csv`.', '',
            '| Период | ' + ' | '.join(t for _, t in KINDS) + ' | Всего | Уплачено |',
            '|---|' + '---:|' * (len(KINDS) + 1) + '---|']
     total = defaultdict(Decimal)
@@ -335,8 +446,9 @@ def main():
                 'пријавом до 30 апреля года, за который определяется накнада. Начисления —',
                 'из решений `taxes/statements/ГГГГ/012_*.pdf`; пока решения за год нет,',
                 'действует аконтација в размере обязанности последнего квартала прошлого',
-                f'года. За {today.year} год действует: {acting}.', '',
-                '| Год | Квартал | Начислено | Срок | Уплачено | Статус |',
+                f'года. За {today.year} год действует: {acting}.', '']
+        out += ['Уплачено — без каматы по опомене и комиссии портала: налог они не гасят.', '']
+        out += ['| Год | Квартал | Начислено | Срок | Уплачено | Статус |',
                 '|---|---|---:|---|---:|---|']
         for r in ledger:
             amount = fmt(r['amount']) if r['amount'] is not None else '—'
@@ -353,7 +465,8 @@ def main():
     os.makedirs(os.path.dirname(path), exist_ok=True)   # в свежем дереве данных папки ещё нет
     open(path, 'w').write('\n'.join(out))
     print(f'{os.path.relpath(path, DATA)}: {len(periods)} периодов, '
-          f'{len(rows)} платежей, всего {fmt(total["sum"])} RSD'
+          f'{len(rows)} платежей' + (f' и {len(extra)} не со счёта ИП' if extra else '')
+          + f', всего {fmt(total["sum"])} RSD'
           + (f', НЕРАСПОЗНАННЫХ: {len(unknown)}' if unknown else ''))
     for a in alerts:      # эко-такса вне месячного ритма: её сроки видны только здесь
         print(f'эко-такса: {a}')
